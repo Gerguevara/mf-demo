@@ -1,0 +1,2691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Branch Strategy & Deployment Flows</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* ── Brand palette ───────────────────────────────────────── */
+      --brand-primary:   rgb(11, 37, 60);    /* dark navy */
+      --brand-secondary: rgb(249, 240, 254); /* light lavender */
+      --brand-tertiary:  rgb(158, 207, 64);  /* lime green */
+
+      /* ── Theme tokens ────────────────────────────────────────── */
+      --bg:        rgb(11, 37, 60);          /* brand primary */
+      --surface:   rgb(16, 50, 82);
+      --surface2:  rgb(22, 64, 104);
+      --border:    rgb(32, 82, 128);
+      --accent:    rgb(158, 207, 64);        /* brand tertiary */
+      --accent2:   #3fb950;
+      --accent3:   #f78166;
+      --accent4:   #d2a8ff;
+      --accent5:   #ffa657;
+      --text:      rgb(249, 240, 254);       /* brand secondary */
+      --text-dim:  rgba(249, 240, 254, 0.55);
+      --radius:    12px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Deck ─────────────────────────────────────────────────── */
+    #deck {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      padding: 52px 72px 72px;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .slide.active { display: flex; }
+    .slide::-webkit-scrollbar { width: 4px; }
+    .slide::-webkit-scrollbar-track { background: transparent; }
+    .slide::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── Progress bar ─────────────────────────────────────────── */
+    #progress {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--border);
+      z-index: 100;
+    }
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent4));
+      transition: width 0.35s ease;
+    }
+
+    /* ── Slide counter ────────────────────────────────────────── */
+    #counter {
+      position: fixed;
+      bottom: 24px; right: 32px;
+      font-size: 13px;
+      color: var(--text-dim);
+      z-index: 100;
+    }
+
+    /* ── Nav arrows ───────────────────────────────────────────── */
+    .nav-btn {
+      position: fixed;
+      top: 50%; transform: translateY(-50%);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 40px; height: 60px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      z-index: 100;
+    }
+    .nav-btn:hover { background: var(--surface); color: var(--text); border-color: var(--accent); }
+    #btn-prev { left: 14px; }
+    #btn-next { right: 14px; }
+
+    /* ── Typography ───────────────────────────────────────────── */
+    .slide-tag {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 3.5vw, 48px);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+    }
+    h2 {
+      font-size: clamp(22px, 2.8vw, 36px);
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 28px;
+    }
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    p { line-height: 1.7; color: var(--text-dim); font-size: 15px; }
+    strong { color: var(--text); }
+
+    .subtitle {
+      font-size: clamp(15px, 1.8vw, 20px);
+      color: var(--text-dim);
+      margin-top: 14px;
+      max-width: 680px;
+    }
+
+    /* ── Cards ────────────────────────────────────────────────── */
+    .cards {
+      display: grid;
+      gap: 16px;
+      margin-top: 8px;
+    }
+    .cards-2 { grid-template-columns: repeat(2, 1fr); }
+    .cards-3 { grid-template-columns: repeat(3, 1fr); }
+    .cards-4 { grid-template-columns: repeat(4, 1fr); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+    }
+    .card-accent { border-top: 3px solid var(--accent); }
+    .card-green  { border-top: 3px solid var(--accent2); }
+    .card-red    { border-top: 3px solid var(--accent3); }
+    .card-purple { border-top: 3px solid var(--accent4); }
+    .card-orange { border-top: 3px solid var(--accent5); }
+
+    .card-icon { font-size: 26px; margin-bottom: 10px; }
+    .card h3   { font-size: 15px; }
+    .card p    { font-size: 13px; margin-top: 6px; }
+
+    /* ── Two-column layout ────────────────────────────────────── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      align-items: start;
+      flex: 1;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* ── Diagram container ────────────────────────────────────── */
+    .diagram-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      flex: 1;
+      min-height: 0;
+      max-height: 520px;
+      overflow: hidden;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      cursor: zoom-in;
+      position: relative;
+      transition: border-color 0.15s;
+    }
+    .diagram-wrap .mermaid {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      min-height: 0;
+    }
+    .diagram-wrap:hover { border-color: var(--accent); }
+    .diagram-wrap::after {
+      content: "⤢";
+      position: absolute;
+      top: 8px; right: 10px;
+      font-size: 15px;
+      color: var(--text-dim);
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .diagram-wrap:hover::after { opacity: 1; }
+    .diagram-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+    .diagram-wrap::-webkit-scrollbar-track { background: transparent; }
+    .diagram-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .diagram-wrap svg, .diagram-wrap img.diagram-img {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: contain;
+    }
+
+    /* ── Slide number badge ───────────────────────────────────── */
+    .slide-num {
+      position: absolute;
+      top: 16px; left: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      opacity: 0.45;
+      user-select: none;
+    }
+
+    /* ── Lightbox ─────────────────────────────────────────────── */
+    #lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(8px);
+      align-items: center;
+      justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox-inner {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 92vw;
+      height: 92vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+      overflow: hidden;
+    }
+    #lb-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #lb-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.3px;
+    }
+    #lightbox-close {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 3px 8px;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+    #lightbox-close:hover { color: var(--text); background: var(--surface2); }
+    #lightbox-viewport {
+      flex: 1;
+      overflow: hidden;
+      cursor: grab;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #lightbox-viewport.grabbing { cursor: grabbing; }
+    #lightbox-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform-origin: center center;
+      will-change: transform;
+      user-select: none;
+    }
+    #lightbox-content img,
+    #lightbox-content svg {
+      display: block;
+      pointer-events: none;
+      -webkit-user-drag: none;
+    }
+    #lb-zoom {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+    }
+    #lb-zoom:focus { border-color: var(--accent); }
+
+    /* ── Step list ────────────────────────────────────────────── */
+    .steps { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+    .steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 24px; height: 24px;
+      background: var(--accent);
+      color: #000;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .step-num.green  { background: var(--accent2); }
+    .step-num.red    { background: var(--accent3); }
+    .step-num.purple { background: var(--accent4); }
+    .step-num.orange { background: var(--accent5); }
+
+    /* ── Pill / badge ─────────────────────────────────────────── */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pill-blue   { background: rgba(88,166,255,.15); color: var(--accent);  border: 1px solid rgba(88,166,255,.3); }
+    .pill-green  { background: rgba(63,185,80,.15);  color: var(--accent2); border: 1px solid rgba(63,185,80,.3); }
+    .pill-red    { background: rgba(247,129,102,.15);color: var(--accent3); border: 1px solid rgba(247,129,102,.3); }
+    .pill-purple { background: rgba(210,168,255,.15);color: var(--accent4); border: 1px solid rgba(210,168,255,.3); }
+    .pill-orange { background: rgba(255,166,87,.15); color: var(--accent5); border: 1px solid rgba(255,166,87,.3); }
+
+    /* ── Table ────────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    th {
+      background: var(--surface2);
+      color: var(--accent);
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+    td strong { color: var(--text); }
+
+    /* ── Code inline ──────────────────────────────────────────── */
+    code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+      color: var(--accent5);
+    }
+
+    /* ── Title slide specifics ────────────────────────────────── */
+    .title-slide {
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .title-slide .hero-tag {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Divider ──────────────────────────────────────────────── */
+    hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+    /* ── CSI abbreviation tooltip ─────────────────────────────── */
+    .csi-abbr {
+      text-decoration: underline dotted var(--accent5);
+      cursor: help;
+      position: relative;
+      color: var(--accent5);
+      font-style: normal;
+    }
+    .csi-abbr::after {
+      content: attr(title);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface2);
+      border: 1px solid var(--accent5);
+      color: var(--text);
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 8px 12px;
+      border-radius: 8px;
+      white-space: normal;
+      width: 260px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      z-index: 200;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .csi-abbr::before {
+      content: '';
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: var(--accent5);
+      z-index: 201;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .csi-abbr:hover::after,
+    .csi-abbr:hover::before { opacity: 1; }
+
+    /* ── Mermaid theming ──────────────────────────────────────── */
+    .mermaid { width: 100%; }
+
+    /* ── Scrollable content area ──────────────────────────────── */
+    .scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+    .scroll-area::-webkit-scrollbar { width: 4px; }
+    .scroll-area::-webkit-scrollbar-track { background: transparent; }
+    .scroll-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── Keyboard hint ────────────────────────────────────────── */
+    #key-hint {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      gap: 16px;
+      z-index: 100;
+    }
+    #key-hint kbd {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+<div id="progress"><div id="progress-fill"></div></div>
+<div id="counter"></div>
+<button class="nav-btn" id="btn-prev">‹</button>
+<button class="nav-btn" id="btn-next">›</button>
+<div id="key-hint"><span><kbd>←</kbd><kbd>→</kbd> navigate</span><span><kbd>Space</kbd> next</span></div>
+
+<div id="deck">
+
+  <!-- ══════════════════ SLIDE 1 – Title ══════════════════ -->
+  <section class="slide title-slide active">
+    <span class="slide-num">01</span>
+    <div class="hero-tag">
+      <span class="pill pill-blue">Azure DevOps</span>
+      <span class="pill pill-green">AKS</span>
+      <span class="pill pill-purple">Microfrontends</span>
+      <span class="pill pill-orange">Nx Monorepo</span>
+    </div>
+    <h1>Branch Strategy<br>&amp; Deployment Flows</h1>
+    <p class="subtitle">
+      A complete walkthrough of the CI/CD pipelines, ephemeral environments,
+      and rollback mechanisms powering this Nx microfrontend monorepo.
+    </p>
+    <div style="margin-top:28px;display:flex;flex-direction:column;gap:16px;">
+      <!-- Key capabilities -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;">
+        <div class="card card-accent" style="font-size:12px;padding:12px;">
+          <div style="font-size:20px;margin-bottom:6px;">🔀</div>
+          <strong>Branch Strategy</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">Trunk-based · short-lived branches · PR gates</p>
+        </div>
+        <div class="card card-green" style="font-size:12px;padding:12px;">
+          <div style="font-size:20px;margin-bottom:6px;">🚀</div>
+          <strong>Auto Deploy</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">Merge → mfe-dev · rolling updates · zero downtime</p>
+        </div>
+        <!-- HIGHEST IMPACT -->
+        <div class="card card-purple" style="font-size:12px;padding:12px;border:2px solid var(--accent4);position:relative;">
+          <div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);">
+            <span class="pill" style="background:var(--accent4);color:var(--bg);font-size:9px;letter-spacing:1px;white-space:nowrap;font-weight:700;">HIGHEST IMPACT</span>
+          </div>
+          <div style="font-size:20px;margin-bottom:6px;">🔬</div>
+          <strong>Ephemeral Envs</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">Every PR → live preview · auto-cleanup · fast builds</p>
+        </div>
+        <div class="card card-orange" style="font-size:12px;padding:12px;">
+          <div style="font-size:20px;margin-bottom:6px;">🕐</div>
+          <strong>Auto Cleanup</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">TTL annotations · every 6h scan · zero ops overhead</p>
+        </div>
+        <div class="card card-red" style="font-size:12px;padding:12px;">
+          <div style="font-size:20px;margin-bottom:6px;">↩️</div>
+          <strong>Rollback</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">Immutable ACR tags · 2–4 min revert · no rebuild</p>
+        </div>
+        <!-- HIGHEST IMPACT -->
+        <div class="card card-green" style="font-size:12px;padding:12px;border:2px solid var(--accent);position:relative;">
+          <div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);">
+            <span class="pill" style="background:var(--accent);color:var(--bg);font-size:9px;letter-spacing:1px;white-space:nowrap;font-weight:700;">HIGHEST IMPACT</span>
+          </div>
+          <div style="font-size:20px;margin-bottom:6px;">⚙️</div>
+          <strong>Dynamic MFE</strong>
+          <p style="color:var(--text-dim);margin-top:4px;font-size:11px;">Add/remove MFEs · zero pipeline changes · NX graph</p>
+        </div>
+      </div>
+
+      <!-- Business Benefits bar -->
+      <div style="border:1px solid var(--accent);border-radius:var(--radius);padding:12px 16px;background:rgba(158,207,64,0.06);display:grid;grid-template-columns:auto 1fr 1fr 1fr 1fr;gap:12px;align-items:center;">
+        <div style="display:flex;align-items:center;gap:8px;padding-right:12px;border-right:1px solid var(--border);">
+          <span style="font-size:18px;">💼</span>
+          <strong style="font-size:12px;color:var(--accent);white-space:nowrap;">Business Benefits</strong>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);">
+          <strong style="color:var(--text);">Faster reviews</strong><br>PR previews mean live testing — no branch checkout needed
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);">
+          <strong style="color:var(--text);">Lower incident risk</strong><br>Same image from PR to prod · rollback in minutes
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);">
+          <strong style="color:var(--text);">Team independence</strong><br>New MFE teams plug in with zero pipeline coordination
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);">
+          <strong style="color:var(--text);">Reduced ops overhead</strong><br>Autoscaling · TTL cleanup · immutable builds
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 2 – Repo Overview ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">02</span>
+    <div class="slide-tag">Architecture</div>
+    <h2>Repository Overview</h2>
+    <div class="two-col" style="grid-template-columns: 3fr 2fr; align-items: center;">
+      <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+        <img
+          src="diagram_application.jpeg"
+          alt="Project Structure Explanation"
+          style="max-width:100%; max-height:520px; object-fit:contain; border-radius:10px; box-shadow:0 4px 24px rgba(0,0,0,0.5);"
+        />
+      </div>
+      <div>
+        <h3>Five Pipelines</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div class="card card-accent">
+            <strong style="font-size:13px;">ci.yml</strong>
+            <p>PR validation + merge-to-main deployment</p>
+          </div>
+          <div class="card card-purple">
+            <strong style="font-size:13px;">ephemeral.yml</strong>
+            <p>PR preview environments with TTL</p>
+          </div>
+          <div class="card card-green">
+            <strong style="font-size:13px;">ephemeral-cleanup-scheduled.yml</strong>
+            <p>Every 6h — deletes expired namespaces</p>
+          </div>
+          <div class="card card-orange">
+            <strong style="font-size:13px;">release.yml</strong>
+            <p>Manual deploy from any git ref</p>
+          </div>
+          <div class="card card-red">
+            <strong style="font-size:13px;">rollback.yml</strong>
+            <p>Revert to previous ACR image tag</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – MFE Structure & Clean Architecture ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">03</span>
+    <div class="slide-tag">Architecture</div>
+    <h2>MFE Structure &amp; Clean Architecture</h2>
+    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
+
+      <!-- Top row: key concepts first -->
+      <div class="cards cards-4" style="align-items:start;">
+        <div class="card card-accent">
+          <h3>Each MFE is its own app</h3>
+          <p style="font-size:13px;">Independent NX project under <code>apps/</code>. Owns its routing, components, services, tests and its own <code>package.json</code>. Nothing shared except declared libraries.</p>
+        </div>
+        <div class="card card-green" style="font-size:13px;">
+          <h3>Clean Architecture layers</h3>
+          <ul style="list-style:none;margin-top:6px;display:flex;flex-direction:column;gap:5px;color:var(--text-dim);">
+            <li><strong style="color:var(--text);">Domain</strong> — entities, business rules</li>
+            <li><strong style="color:var(--text);">Application</strong> — use-cases, state</li>
+            <li><strong style="color:var(--text);">Infrastructure</strong> — HTTP, ConfigMap URLs</li>
+            <li><strong style="color:var(--text);">UI</strong> — Angular components only</li>
+          </ul>
+        </div>
+        <div class="card card-purple" style="font-size:13px;">
+          <h3>Module Federation</h3>
+          <p><code>monarch-main</code> (host shell) lazy-loads each remote via <code>remoteEntry.js</code>. URLs come from Kubernetes ConfigMap at runtime — no hardcoded addresses.</p>
+          <p style="margin-top:6px;">Failure in one remote does not affect the shell or siblings.</p>
+        </div>
+        <div class="card card-orange" style="font-size:13px;">
+          <h3>Per-MFE <code>package.json</code></h3>
+          <p>Root <code>package.json</code> holds shared framework deps. Each MFE declares only its own. npm workspaces hoists shared, keeps MFE-specific scoped — version conflicts stay isolated.</p>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:5px 7px;border-radius:5px;margin-top:6px;line-height:1.7;">COPY package*.json ./
+COPY apps/$APP_NAME/package.json \
+     ./apps/$APP_NAME/
+RUN npm ci   # cached if unchanged</pre>
+        </div>
+      </div>
+
+      <!-- Bottom row: folder structure full width -->
+      <div>
+        <h3 style="margin-bottom:10px;">Repository structure</h3>
+        <div class="card" style="background:var(--surface2);">
+          <pre style="font-size:11px;color:var(--accent);line-height:1.85;background:transparent;">apps/
+├── monarch-main/              ← host shell (Module Federation host)
+│   └── module-federation.config.ts
+└── comments/                  ← example MFE remote
+    ├── src/
+    │   ├── app/
+    │   │   ├── domain/        ← entities, value objects (no framework deps)
+    │   │   ├── application/   ← use-cases, NgRx / signals state
+    │   │   ├── infrastructure/← HTTP adapters, ConfigMap-driven URLs
+    │   │   └── ui/            ← Angular components &amp; pages
+    │   ├── module-federation.config.ts
+    │   └── bootstrap.ts       ← async MF entry point
+    ├── package.json           ← MFE-specific dependencies
+    ├── project.json           ← NX project config &amp; targets
+    └── Dockerfile.prod        ← shared Dockerfile, parameterised via APP_NAME
+libs/                          ← shared UI components, utilities, types (NX boundaries enforced)
+package.json                   ← workspace root — shared Angular / NX framework packages</pre>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 3 – Dynamic MFE Discovery ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">04</span>
+    <div class="slide-tag">MFE Lifecycle</div>
+    <h2>Dynamic MFE Discovery</h2>
+    <div class="two-col" style="flex:1; grid-template-columns: 1fr 1fr; align-items:start;">
+
+      <!-- Left: explanation -->
+      <div style="display:flex; flex-direction:column; gap:18px;">
+        <ul class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <div>
+              <strong>Developer creates a new MFE</strong>
+              <p>Add the app inside <code>apps/</code>. The NX workspace registers it in the project graph instantly — no pipeline files to touch.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>
+              <strong>Pipelines query the workspace at runtime</strong>
+              <p>Every pipeline runs <code>nx show projects --type=app</code> when triggered. The app list is always live and accurate.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div>
+              <strong>Build & deploy happen automatically</strong>
+              <p>A single loop job builds a Docker image and deploys every discovered app. The new MFE is included with zero extra configuration.</p>
+            </div>
+          </li>
+        </ul>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="card card-green">
+            <div class="card-icon">💼</div>
+            <h3>Business</h3>
+            <p>New feature modules reach production faster — no pipeline team bottleneck, no approval to add an MFE.</p>
+          </div>
+          <div class="card card-accent">
+            <div class="card-icon">⚙️</div>
+            <h3>DevOps</h3>
+            <p>NX workspace is the single source of truth. Loop jobs scale automatically to any number of MFEs.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: diagram -->
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    DEV(["Push code / Open PR"])
+
+    NX["NX Workspace\nDiscovers all MFEs automatically"]
+
+    PIPE["Azure Pipelines\nLoops over every discovered app"]
+
+    ACR[("Container Registry\nOne Docker image per MFE")]
+
+    DEV_ENV["Dev Environment\nAKS · mfe-dev"]
+    PR_ENV["PR Preview\nAKS · mfe-pr-N"]
+    REL["Manual Release\nAny tag · any git ref"]
+
+    DEV -->|"triggers"| NX
+    NX -->|"live app list"| PIPE
+    PIPE -->|"build & push"| ACR
+    ACR --> DEV_ENV
+    ACR --> PR_ENV
+    ACR --> REL
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef registry fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef env fill:#6e40c9,stroke:#8957e5,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+
+    class DEV trigger
+    class ACR registry
+    class DEV_ENV,PR_ENV,REL env
+    class NX,PIPE neutral
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Adding a MFE ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">05</span>
+    <div class="slide-tag">MFE Lifecycle</div>
+    <h2>Adding a New MFE</h2>
+    <div class="two-col" style="flex:1;">
+      <div>
+        <h3>Code changes</h3>
+        <ul class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <div>
+              <strong>Generate the NX app</strong>
+              <p style="font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--accent5);margin-top:4px;">nx g @nx/angular:remote my-mfe --host=monarch-main</p>
+              <p>Creates <code>apps/my-mfe/project.json</code> → NX registers it immediately in the workspace graph.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>
+              <strong>Register in host Module Federation</strong>
+              <p>Add <code>'my-mfe'</code> to <code>remotes[]</code> in <code>apps/host/module-federation.config.ts</code> and add a lazy route in <code>app.routes.ts</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div>
+              <strong>Add K8s deployment manifest</strong>
+              <p>Copy any existing MFE manifest → <code>k8s/base/my-mfe-deployment.yaml</code>. Update name, labels and image reference. The deploy loop resolves it by convention: <code>k8s/base/{app-name}-deployment.yaml</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">4</span>
+            <div>
+              <strong>Update shared K8s resources</strong>
+              <p>Add MFE URL entry to <code>k8s/base/mfe-configmap.yaml</code> and add an ingress path rule to <code>k8s/base/mfe-ingress.yaml</code>.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>What happens automatically</h3>
+        <div class="card card-green">
+          <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:8px;">
+            <li>✓ PR → NX detects the new app as affected → lint + test + build check run on it</li>
+            <li>✓ <code>ephemeral.yml</code> builds its Docker image and deploys it to the PR preview</li>
+            <li>✓ Merge → <code>ci.yml</code> builds and deploys it to AKS dev in the same loop as all other MFEs</li>
+          </ul>
+        </div>
+        <h3>What you never touch</h3>
+        <div class="card" style="background:var(--surface2);font-size:13px;">
+          <ul style="list-style:none;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;">
+            <li>✗ No pipeline YAML changes</li>
+            <li>✗ No script changes</li>
+            <li>✗ No variable group changes</li>
+            <li>✗ No new Dockerfile needed</li>
+          </ul>
+        </div>
+        <div class="card card-red" style="font-size:12px;border:2px solid var(--accent3);">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <strong>Convention that makes it work</strong>
+            <span class="pill pill-red" style="font-size:10px;letter-spacing:1px;">REQUIRED</span>
+          </div>
+          <p>Manifest path <strong>must</strong> match NX project name exactly:<br><code>k8s/base/{nx-project-name}-deployment.yaml</code></p>
+          <p style="margin-top:6px;color:var(--accent3);">If not found the deploy loop skips that app — the new MFE will not be deployed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Removing a MFE ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">06</span>
+    <div class="slide-tag">MFE Lifecycle</div>
+    <h2>Removing an MFE</h2>
+    <div class="two-col" style="flex:1;">
+      <div>
+        <h3>Code changes</h3>
+        <ul class="steps">
+          <li>
+            <span class="step-num red">1</span>
+            <div>
+              <strong>Remove the NX app</strong>
+              <p style="font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--accent5);margin-top:4px;">nx g @nx/workspace:remove --projectName=my-mfe</p>
+              <p>Deletes <code>apps/my-mfe/</code> and removes it from the NX graph. Pipelines will no longer detect it as an app.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num red">2</span>
+            <div>
+              <strong>Unregister from host Module Federation</strong>
+              <p>Remove <code>'my-mfe'</code> from <code>remotes[]</code> in <code>apps/host/module-federation.config.ts</code> and remove its lazy route from <code>app.routes.ts</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num red">3</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <strong>Delete K8s manifest</strong>
+                <span class="pill pill-red" style="font-size:10px;letter-spacing:1px;">MANDATORY</span>
+              </div>
+              <p>Delete <code>k8s/base/my-mfe-deployment.yaml</code>. Remove its URL entry from <code>mfe-configmap.yaml</code> and its path rule from <code>mfe-ingress.yaml</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num red">4</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <strong>Delete the live deployment</strong>
+                <span class="pill pill-red" style="font-size:10px;letter-spacing:1px;">MANDATORY</span>
+              </div>
+              <p>Pipelines only deploy — they do not delete existing resources. The running pod will remain indefinitely unless removed manually:</p>
+              <p style="font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--accent5);margin-top:4px;">kubectl delete deployment my-mfe -n mfe-dev</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>What happens automatically</h3>
+        <div class="card card-green">
+          <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:8px;">
+            <li>✓ Next CI run: NX no longer lists the app → not built, not pushed to ACR, not deployed</li>
+            <li>✓ PR pipelines: app is not included in affected detection</li>
+            <li>✓ No orphaned pipeline jobs or conditions to clean up</li>
+          </ul>
+        </div>
+        <div class="card card-orange">
+          <h3 style="color:var(--accent5);">Manual step required</h3>
+          <p style="font-size:13px;">The pipeline loop only deploys apps that are in <code>AFFECTED_APPS</code>. It will never delete a running deployment. Step 4 must always be done manually with <code>kubectl</code> or via the Azure Portal.</p>
+        </div>
+        <h3>What you never touch</h3>
+        <div class="card" style="background:var(--surface2);font-size:13px;">
+          <ul style="list-style:none;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;">
+            <li>✗ No pipeline YAML changes</li>
+            <li>✗ No script changes</li>
+            <li>✗ No variable group changes</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 6 – Branch Strategy ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">07</span>
+    <div class="slide-tag">Branch Strategy</div>
+    <h2>Branch Model — Trunk Based</h2>
+    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
+      <!-- Cards row at top -->
+      <div class="cards cards-4" style="align-items:start;">
+        <div class="card card-accent">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <code>main</code>
+            <span class="pill pill-green">protected · trunk</span>
+          </div>
+          <p>Single integration branch. Every merged PR triggers a deploy to <strong>mfe-dev</strong>. Direct pushes disabled — PRs only.</p>
+        </div>
+        <div class="card card-purple">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <code>feature/username</code>
+            <span class="pill pill-blue">short-lived</span>
+          </div>
+          <p>Each developer works under their own <code>feature/username</code> namespace. For a single deliverable use <code>feature/username</code> directly; for multiple parallel items use <code>feature/username/topic</code> — one branch per ticket.</p>
+        </div>
+        <div class="card card-orange">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <code>Pull Requests</code>
+            <span class="pill pill-orange">auto pipelines</span>
+          </div>
+          <p>Opening a PR to <code>main</code> triggers quality gate (<code>ci.yml</code>) and live preview (<code>ephemeral.yml</code>) automatically.</p>
+        </div>
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--text-dim);font-size:13px;">Pipeline triggers</h3>
+          <table style="margin-top:8px;font-size:12px;">
+            <tr><th>Event</th><th>Pipeline</th></tr>
+            <tr><td>Push to <code>main</code></td><td><span class="pill pill-green" style="font-size:11px;">ci.yml → Deploy</span></td></tr>
+            <tr><td>Open / update PR</td><td><span class="pill pill-blue" style="font-size:11px;">ci.yml → Validate</span></td></tr>
+            <tr><td>Open / update PR</td><td><span class="pill pill-purple" style="font-size:11px;">ephemeral.yml</span></td></tr>
+          </table>
+        </div>
+      </div>
+      <!-- Diagram at bottom, full width -->
+      <div class="diagram-wrap" style="flex:1;min-height:260px;">
+        <div class="mermaid">
+%%{init: {'gitGraph': {'rotateCommitLabel': true}}}%%
+gitGraph
+   commit id: "init"
+   branch feature/cristobalgarcia
+   checkout feature/cristobalgarcia
+   commit id: "user-auth"
+   commit id: "coverage"
+   checkout main
+   branch feature/celvinrivas
+   checkout feature/celvinrivas
+   commit id: "comments"
+   checkout main
+   merge feature/cristobalgarcia id: "PR-12"
+   checkout feature/celvinrivas
+   commit id: "styles"
+   checkout main
+   merge feature/celvinrivas id: "PR-13"
+   commit id: "deploy"
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 4 – PR Lifecycle (overview) ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">08</span>
+    <div class="slide-tag">Developer Workflow</div>
+    <h2>Pull Request Lifecycle</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <!-- Summary cards at top -->
+      <div class="cards cards-4">
+        <div class="card">
+          <div class="card-icon">🧪</div>
+          <h3>Quality Gate</h3>
+          <p>Lint + test + build on every PR commit — automated, no manual trigger</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔬</div>
+          <h3>Live Preview</h3>
+          <p>Full running environment for reviewers — fires simultaneously with Quality Gate</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>Nx Affected</h3>
+          <p>Only changed apps are built and deployed</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🧹</div>
+          <h3>Auto-cleanup</h3>
+          <p>Preview expires after TTL (default 24h)</p>
+        </div>
+      </div>
+      <!-- Diagram at bottom, full width -->
+      <div class="diagram-wrap" style="flex:1;">
+        <div class="mermaid">
+flowchart TD
+    A(["Push feature branch"]) --> B["Open PR to main"]
+    B -->|"both fire in parallel"| D["ci.yml — Quality Gate"]
+    B -->|"both fire in parallel"| E["ephemeral.yml — Live Preview"]
+
+    D --> F{"All checks pass?\nautomated gate"}
+    E --> G["Docker build\n+ layer cache"]
+    G --> H["Deploy to mfe-pr-N"]
+    H --> I(["Preview URL\npr-N.domain"])
+
+    F -- "Yes" --> J{"Reviewer decision\napprove / request changes"}
+    I --> J
+
+    J -- "Approved" --> K(["Merge to main"])
+    K --> L["ci.yml\nDeploy to mfe-dev"]
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef env fill:#6e40c9,stroke:#8957e5,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+
+    class A,K trigger
+    class I,H env
+    class L success
+    class B,D,E,G neutral
+    class F,J decision
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 5 – Deploy (CI) ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">09</span>
+    <div class="slide-tag">Flow 1 — ci.yml</div>
+    <h2>Deploy: Merge to Main</h2>
+    <div class="two-col" style="flex:1;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <h3>Stages</h3>
+        <ul class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <div>
+              <strong>Build</strong>
+              <p>Nx detects affected apps. Generates version from git SHA. Publishes metadata artifact.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>
+              <strong>Docker_Build</strong> <span class="pill pill-green" style="font-size:11px;">single loop job</span>
+              <p>One job iterates over <code>AFFECTED_APPS</code>. Builds &amp; pushes each image sequentially. Tags: <code>{BuildId}</code> + <code>latest</code>. New MFEs are picked up automatically.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num green">3</span>
+            <div>
+              <strong>Deploy_AKS_Dev</strong> <span class="pill pill-green" style="font-size:11px;">single loop job</span>
+              <p>Deploys to namespace <code>mfe-dev</code>:</p>
+              <ul style="list-style:none;padding-left:8px;margin-top:4px;font-size:13px;display:flex;flex-direction:column;gap:4px;">
+                <li>→ monarch-main first <span style="color:var(--text-dim);">(applies ConfigMap + Ingress)</span></li>
+                <li>→ all other affected MFEs <span style="color:var(--text-dim);">(loop — any count)</span></li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+        <div class="card" style="margin-top:8px;">
+          <h3>Image tag strategy</h3>
+          <p><code>mfe/{app}:{BuildId}</code> &nbsp;(versioned)<br><code>mfe/{app}:latest</code> &nbsp;(floating)</p>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    T(["Merge to main"]) --> B
+
+    subgraph S1["Stage 1 · Build"]
+      B["Detect affected apps\nGenerate version from git SHA"]
+    end
+
+    subgraph S2["Stage 2 · Docker Build"]
+      B --> DA["Loop over AFFECTED_APPS\nBuild image + push to ACR\nTag: BuildId and latest"]
+    end
+
+    subgraph S3["Stage 3 · Deploy"]
+      DA --> J1["Deploy monarch-main first\nApply ConfigMap + Ingress\nThen loop remaining MFEs"]
+      J1 --> END(["mfe-dev live"])
+    end
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+
+    class T trigger
+    class END success
+    class B,DA,J1 neutral
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 6 – Ephemeral Deploy ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">10</span>
+    <div class="slide-tag">Flow 2 — ephemeral.yml</div>
+    <h2>Deploy Ephemeral Environment</h2>
+    <div class="two-col" style="flex:1;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <h3>Trigger & Parameters</h3>
+        <div class="card" style="margin-bottom:8px;">
+          <p style="font-size:13px;line-height:2;">
+            <span class="pill pill-blue">Auto</span> &nbsp;PR to main / develop / feature/*<br>
+            <span class="pill pill-purple">action</span> &nbsp;<code>deploy</code> | <code>redeploy</code> | <code>cleanup</code><br>
+            <span class="pill pill-orange">ttlHours</span> &nbsp;4 / 8 / <strong>24</strong> / 48 / 72 / 168<br>
+            <span class="pill pill-green">apps</span> &nbsp;<code>auto</code> (Nx affected) or specific app
+          </p>
+        </div>
+        <h3>Key Optimizations</h3>
+        <ul class="steps">
+          <li><span class="step-num">💡</span><span><strong>Docker layer cache</strong> — pulls <code>pr-N-latest</code> from ACR before build. If <code>package.json</code> unchanged → npm ci layer reused (~2 min saved).</span></li>
+          <li><span class="step-num">💡</span><span><strong>Redeploy mode</strong> — skips Docker build entirely; just restarts pods with existing <code>pr-N-latest</code> image (~2–3 min).</span></li>
+          <li><span class="step-num">💡</span><span><strong>Nx affected</strong> — only changed apps are rebuilt and deployed.</span></li>
+        </ul>
+        <div class="card card-purple" style="margin-top:8px;">
+          <h3>Output</h3>
+          <p>Preview URL: <code>https://pr-{N}.{domain}/</code><br>
+          Namespace: <code>mfe-pr-{N}</code> with TTL annotation</p>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    T(["PR opened / updated"]) --> V{"User selects action\nparameter:"}
+
+    V -- "deploy\nnew build" --> BA1
+    subgraph BA["Stage: Build and Deploy"]
+      BA1["Detect affected apps"]
+      BA1 --> BA2["Pull pr-N-latest\nfor layer cache"]
+      BA2 --> BA3["Docker build\n+ push to ACR"]
+      BA3 --> BA4["Tagged: pr-N-BuildId\nand pr-N-latest"]
+    end
+
+    V -- "redeploy\nskip build" --> RD["Skip build\nUse existing pr-N-latest image"]
+
+    BA4 --> DP1
+    RD --> DP1
+    subgraph DP["Stage: Deploy Preview"]
+      DP1["Create namespace\nmfe-pr-N + TTL annotation"]
+      DP1 --> DP2["Apply ConfigMap + Ingress"]
+      DP2 --> DP3["Deploy affected apps"]
+      DP3 --> DP4(["Preview URL live"])
+    end
+
+    V -- "cleanup\nremove env" --> CL["Delete namespace\nmfe-pr-N"]
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef env fill:#6e40c9,stroke:#8957e5,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef cleanup fill:#b62324,stroke:#f85149,color:#fff
+
+    class T trigger
+    class DP4 env
+    class BA1,BA2,BA3,BA4,DP1,DP2,DP3,RD neutral
+    class V decision
+    class CL cleanup
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 7 – Cleanup Ephemeral ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">11</span>
+    <div class="slide-tag">Flow 3 — Cleanup</div>
+    <h2>Cleanup Ephemeral Environments</h2>
+    <div class="two-col" style="flex:1;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <h3>Two ways to clean up</h3>
+        <div class="card card-orange">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <span style="font-size:20px;">🤚</span>
+            <strong>Manual — ephemeral.yml</strong>
+            <span class="pill pill-orange">action=cleanup</span>
+          </div>
+          <ul class="steps">
+            <li><span class="step-num orange">1</span><span>Trigger <code>ephemeral.yml</code> manually</span></li>
+            <li><span class="step-num orange">2</span><span>Set <code>action=cleanup</code>, provide <code>prNumber</code></span></li>
+            <li><span class="step-num orange">3</span><span>Pipeline deletes <code>mfe-pr-{N}</code> namespace</span></li>
+            <li><span class="step-num orange">4</span><span>All resources removed immediately</span></li>
+          </ul>
+        </div>
+        <div class="card card-green">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <span style="font-size:20px;">🕐</span>
+            <strong>Scheduled — every 6 hours</strong>
+            <span class="pill pill-green">auto</span>
+          </div>
+          <ul class="steps">
+            <li><span class="step-num green">1</span><span>Cron <code>0 */6 * * *</code> triggers <code>ephemeral-cleanup-scheduled.yml</code></span></li>
+            <li><span class="step-num green">2</span><span>Lists all namespaces with label <code>environment=ephemeral</code></span></li>
+            <li><span class="step-num green">3</span><span>Reads <code>ephemeral/expires-at</code> annotation on each</span></li>
+            <li><span class="step-num green">4</span><span>Deletes any namespace where <code>now > expires-at</code></span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    A(["Scheduled · every 6 hours"]) --> B["List namespaces\nlabelled environment=ephemeral"]
+    B --> C[/"↻ Iterate each namespace"/]
+    C --> D["Read annotation\nexpires-at"]
+    D --> E{"Expired?\nautomated check"}
+    E -- Yes --> F["Delete namespace\nmfe-pr-N"]
+    F --> G(["Namespace removed"])
+    E -- No --> H(["Skip — time remaining logged"])
+    H --> C
+    G --> C
+
+    I(["Developer · manual trigger"]) --> J["Run ephemeral.yml\naction=cleanup · prNumber=N"]
+    J --> K["Delete mfe-pr-N\nimmediately"]
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef cleanup fill:#b62324,stroke:#f85149,color:#fff
+    classDef loop fill:#1a4a6b,stroke:#58a6ff,color:#e6edf3
+
+    class A,I trigger
+    class G,H success
+    class B,D,J neutral
+    class C loop
+    class E decision
+    class F,K cleanup
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 8 – TTL Lifecycle ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">12</span>
+    <div class="slide-tag">Ephemeral Lifecycle</div>
+    <h2>Namespace Lifecycle &amp; TTL</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:20px;">
+      <div class="diagram-wrap" style="flex:1;">
+        <div class="mermaid">
+timeline
+    title Ephemeral Environment Lifecycle
+    section PR #42 opened
+      t+0h  : ephemeral.yml triggered
+            : Namespace mfe-pr-42 created
+            : expires-at = now + 24h
+            : Preview live at pr-42.domain
+    section Active Development
+      t+2h  : Code push → ephemeral.yml re-runs
+            : New image built (layer cache)
+            : Preview updated (~5 min)
+      t+4h  : Scheduled cleanup runs
+            : Checks expires-at → 20h remaining
+            : Namespace kept
+    section Approaching Expiry
+      t+10h : Scheduled cleanup runs
+            : 14h remaining → kept
+      t+16h : Scheduled cleanup runs
+            : 8h remaining → kept
+    section Cleanup
+      t+22h : Scheduled cleanup runs
+            : 2h remaining → kept
+      t+24h : Scheduled cleanup runs
+            : EXPIRED → namespace deleted
+        </div>
+      </div>
+      <div class="cards cards-3">
+        <div class="card">
+          <h3>Default TTL: 24 hours</h3>
+          <p>Options: 4h, 8h, 24h, 48h, 72h, 168h (1 week). Set via <code>ttlHours</code> parameter.</p>
+        </div>
+        <div class="card">
+          <h3>Namespace labels</h3>
+          <p><code>environment=ephemeral</code><br><code>pr-number=42</code><br><code>ttl-hours=24</code></p>
+        </div>
+        <div class="card">
+          <h3>Extend TTL</h3>
+          <p>Re-run <code>ephemeral.yml</code> with <code>action=deploy</code> and a longer <code>ttlHours</code> to refresh the expiry annotation.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Branch Conflict Resolution ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">13</span>
+    <div class="slide-tag">Branch Strategy</div>
+    <h2>Handling Feature Branch Conflicts</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+
+      <!-- Strategy options -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <div class="card" style="background:var(--surface2);font-size:12px;opacity:0.75;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:18px;">🔀</span>
+            <strong>Option A — Merge main</strong>
+          </div>
+          <p style="color:var(--text-dim);">Pull main into the feature branch with a merge commit.</p>
+          <p style="margin-top:8px;color:var(--accent3);">✗ Pollutes history with merge commits<br>✗ Hard to bisect regressions<br>✗ PR diffs become noisy</p>
+        </div>
+        <div class="card card-green" style="font-size:12px;border:2px solid var(--accent);position:relative;">
+          <div style="position:absolute;top:-10px;right:8px;">
+            <span class="pill" style="background:var(--accent);color:var(--bg);font-size:9px;letter-spacing:1px;font-weight:700;">RECOMMENDED</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:18px;">⬆️</span>
+            <strong>Option B — Rebase onto main</strong>
+          </div>
+          <p style="color:var(--text-dim);">Replay branch commits on top of the latest main. Resolve conflicts per commit.</p>
+          <p style="margin-top:8px;color:var(--accent2);">✓ Linear, bisectable history<br>✓ Clean PR diff<br>✓ Forces small, focused commits</p>
+        </div>
+        <div class="card card-purple" style="font-size:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:18px;">🚩</span>
+            <strong>Option C — Feature flags</strong>
+          </div>
+          <p style="color:var(--text-dim);">Merge incomplete work behind a runtime flag. Multiple devs commit to main without diverging.</p>
+          <p style="margin-top:8px;color:var(--accent2);">✓ Zero long-lived branches<br>✓ Continuous integration<br>✗ Requires flag management</p>
+        </div>
+        <div class="card card-accent" style="font-size:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:18px;">🏗️</span>
+            <strong>Option D — MFE ownership</strong>
+          </div>
+          <p style="color:var(--text-dim);">Assign each team a dedicated MFE. Conflicts are nearly impossible when teams never touch the same files.</p>
+          <p style="margin-top:8px;color:var(--accent2);">✓ Structural prevention<br>✓ NX boundaries enforce it<br>✗ Shared libs still need coordination</p>
+        </div>
+      </div>
+
+      <!-- Decision flowchart + resolution steps -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex:1;align-items:start;">
+        <div>
+          <h3 style="margin-bottom:8px;">Conflict resolution decision flow</h3>
+          <div class="diagram-wrap" style="flex:1;">
+            <div class="mermaid">
+flowchart TD
+    A(["Conflict detected on push"]) --> B{"Where is\nthe conflict?"}
+    B -- "My MFE files only" --> C["Rebase onto main\ngit rebase origin/main"]
+    C --> D["Resolve conflict\nper commit"]
+    D --> E["Push with force-lease\ngit push --force-with-lease"]
+    E --> F(["CI validates · PR auto-updates"])
+    B -- "Shared libs / config" --> G{"How complex\nis the change?"}
+    G -- "Small / isolated" --> H["Coordinate with owner\nRebase + agree on approach"]
+    H --> D
+    G -- "Large / cross-cutting" --> I["Introduce feature flag\nor split into smaller PRs"]
+    I --> J(["Merge increments to main\nbehind flag"])
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef action fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef warn fill:#6e40c9,stroke:#8957e5,color:#fff
+
+    class A trigger
+    class B,G decision
+    class C,D,E,H,I action
+    class F,J success
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <h3>Adopted strategy — Rebase + MFE ownership</h3>
+          <ul class="steps">
+            <li>
+              <span class="step-num">1</span>
+              <div>
+                <strong>Rebase daily onto main</strong>
+                <p><code>git fetch origin && git rebase origin/main</code> — run every morning and before opening a PR. Keeps divergence minimal.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">2</span>
+              <div>
+                <strong>Branches live &lt; 2 days</strong>
+                <p>Short-lived branches mean fewer commits to replay. If a branch grows beyond 2 days, split it into smaller PRs.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">3</span>
+              <div>
+                <strong>NX boundary lint rules</strong>
+                <p><code>@nx/enforce-module-boundaries</code> prevents MFEs from importing each other. Shared code lives in <code>libs/</code> — changes there go through a coordination step.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">4</span>
+              <div>
+                <strong>Big conflict = signal to split</strong>
+                <p>If resolving a rebase conflict takes &gt; 30 min, the branch has lived too long. Stash, create a fresh branch from main, cherry-pick the safe commits.</p>
+              </div>
+            </li>
+          </ul>
+          <div class="card card-red" style="font-size:12px;border:2px solid var(--accent3);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <strong>Never rebase a shared branch</strong>
+              <span class="pill pill-red" style="font-size:9px;letter-spacing:1px;">IMPORTANT</span>
+            </div>
+            <p style="color:var(--text-dim);">Only rebase <em>your own</em> feature branches. Rebasing a branch others have checked out rewrites history and causes diverged refs for teammates.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Why AKS for Ephemeral ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">14</span>
+    <div class="slide-tag">Architecture Decision</div>
+    <h2>Why Kubernetes for Ephemeral Environments</h2>
+    <div style="display:flex;flex-direction:column;gap:20px;flex:1;">
+      <!-- AKS wins — top priority -->
+      <div class="cards cards-4">
+        <div class="card card-green">
+          <div class="card-icon">📦</div>
+          <h3>Namespace = complete isolation</h3>
+          <p><code>kubectl create namespace mfe-pr-42</code> — all pods, services and secrets are scoped to that PR. Zero cross-contamination.</p>
+        </div>
+        <div class="card card-accent">
+          <div class="card-icon">🌐</div>
+          <h3>Shared Ingress controller</h3>
+          <p>One NGINX Ingress Controller routes all preview URLs. Adding a new environment costs zero extra infrastructure — just an Ingress rule.</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🔁</div>
+          <h3>Same manifests as production</h3>
+          <p>PR previews use the exact same Kubernetes manifests as dev. What you test is what runs in production — no environment drift.</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🧹</div>
+          <h3>TTL-based auto-cleanup</h3>
+          <p>Kubernetes annotations enable scheduled cleanup via a cron pipeline. No orphan environments, no runaway infrastructure costs.</p>
+        </div>
+      </div>
+      <!-- Comparison table — full width -->
+      <div>
+        <h3 style="margin-bottom:10px;">Alternatives considered</h3>
+        <table style="width:100%;">
+          <thead>
+            <tr><th>Option</th><th>Isolation</th><th>Ingress / URL</th><th>Multi-MFE support</th><th>Verdict</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Docker Compose</strong></td>
+              <td>Shared host ports</td>
+              <td>Manual, port conflicts</td>
+              <td>Difficult</td>
+              <td><span class="pill pill-red" style="font-size:11px;">Not suitable</span></td>
+            </tr>
+            <tr>
+              <td><strong>Azure Container Instances</strong></td>
+              <td>Per-container</td>
+              <td>No built-in ingress</td>
+              <td>No orchestration</td>
+              <td><span class="pill pill-red" style="font-size:11px;">Not suitable</span></td>
+            </tr>
+            <tr>
+              <td><strong>Azure Container Apps</strong></td>
+              <td>Per-app</td>
+              <td>Limited multi-path routing</td>
+              <td>Partial</td>
+              <td><span class="pill pill-orange" style="font-size:11px;">Partial fit</span></td>
+            </tr>
+            <tr>
+              <td><strong>Static Web Apps</strong></td>
+              <td>N/A</td>
+              <td>Frontend only, no shell</td>
+              <td>No</td>
+              <td><span class="pill pill-red" style="font-size:11px;">Not suitable</span></td>
+            </tr>
+            <tr>
+              <td><strong>AKS — chosen</strong></td>
+              <td>Namespace per PR</td>
+              <td>Shared NGINX Ingress</td>
+              <td>Full — any count</td>
+              <td><span class="pill pill-green" style="font-size:11px;">Best fit</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 9 – Rollback ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">15</span>
+    <div class="slide-tag">Flow 4 — rollback.yml</div>
+    <h2>Rollback to Previous Version</h2>
+    <div class="two-col" style="flex:1;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>When to use</h3>
+        <div class="card card-red">
+          <p>A deployment introduced a regression. You want to <strong>instantly revert</strong> to the last good build without rebuilding from source.</p>
+        </div>
+        <h3>Parameters</h3>
+        <table>
+          <tr><th>Parameter</th><th>Options</th></tr>
+          <tr><td><code>apps</code></td><td><code>all</code> | <code>monarch-main</code> | <code>comments</code> | <code>post</code></td></tr>
+          <tr><td><code>imageTag</code></td><td>Build ID e.g. <code>1234</code></td></tr>
+          <tr><td><code>environment</code></td><td><code>dev</code></td></tr>
+        </table>
+        <h3>How to find the old Build ID</h3>
+        <ul class="steps">
+          <li><span class="step-num">1</span><span>Pipeline shows latest ACR tags during <strong>Validate</strong> stage</span></li>
+          <li><span class="step-num">2</span><span>Check Azure DevOps build history for prior run IDs</span></li>
+          <li><span class="step-num">3</span><span>ACR repository → show tags sorted by date</span></li>
+        </ul>
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--accent2);">Release vs Rollback</h3>
+          <p><strong>release.yml</strong> — builds from source (git SHA/branch)<br>
+          <strong>rollback.yml</strong> — redeploys existing ACR image (no build)</p>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    A(["Regression detected"]) --> B["Run rollback.yml\nManual trigger"]
+    B --> C["Input: apps · imageTag · env"]
+
+    subgraph V["Stage: Validate"]
+      V1["Verify each image\nexists in ACR"]
+      V1 --> V2{"All images found?\nautomated gate"}
+      V2 -- No --> FAIL(["Pipeline fails\nLists available tags"])
+      V2 -- Yes --> PASS["Proceed to rollback"]
+    end
+
+    C --> V1
+
+    subgraph R["Stage: Rollback — sequential"]
+      PASS --> R1["Deploy monarch-main\nwith target imageTag"]
+      R1 --> R2["Deploy remaining MFEs\nsequentially"]
+    end
+
+    R2 --> END(["mfe-dev reverted\nZero-downtime rolling update"])
+
+    classDef trigger fill:#b62324,stroke:#f85149,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef fail fill:#b62324,stroke:#f85149,color:#fff
+
+    class A trigger
+    class END success
+    class FAIL fail
+    class B,C,V1,PASS,R1,R2 neutral
+    class V2 decision
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 10 – Release ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">16</span>
+    <div class="slide-tag">Bonus Flow — release.yml</div>
+    <h2>Manual Release (Hotfix)</h2>
+    <div class="two-col" style="flex:1;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>When to use</h3>
+        <div class="card card-orange">
+          <p>You need to deploy a <strong>specific commit, tag, or branch</strong> to dev/test immediately — without waiting for the normal PR → merge → CI flow.</p>
+        </div>
+        <h3>Parameters</h3>
+        <table>
+          <tr><th>Parameter</th><th>Options</th></tr>
+          <tr><td><code>targetEnv</code></td><td><code>dev</code> | <code>test</code></td></tr>
+          <tr><td><code>app</code></td><td>Any MFE name — free text (e.g. <code>comments</code>, <code>todos</code>)</td></tr>
+          <tr><td><code>ref</code></td><td>SHA, tag, or branch name</td></tr>
+        </table>
+        <h3>Limitations</h3>
+        <ul class="steps">
+          <li><span class="step-num red">!</span><span>Deploys one app at a time</span></li>
+          <li><span class="step-num red">!</span><span>Does NOT apply ConfigMap / Ingress</span></li>
+          <li><span class="step-num red">!</span><span>Namespace must already exist</span></li>
+          <li><span class="step-num red">!</span><span>No lint/test execution</span></li>
+        </ul>
+      </div>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+flowchart TD
+    A(["Manual trigger"]) --> B["targetEnv · app · ref"]
+
+    subgraph BP["Stage: Build and Push"]
+      B --> C["git checkout ref"]
+      C --> D["Docker build\ntag: release-BuildId"]
+      D --> E["Push to ACR"]
+    end
+
+    subgraph DP["Stage: Deploy"]
+      E --> F["Authenticate to cluster"]
+      F --> G["Set image on deployment\napp=ACR/mfe/app:release-N"]
+      G --> H["Wait for rollout\ntimeout 300s"]
+    end
+
+    H --> END(["App updated in target env"])
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef success fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+
+    class A trigger
+    class END success
+    class B,C,D,E,F,G,H neutral
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 11 – Pipeline Comparison ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">17</span>
+    <div class="slide-tag">Reference</div>
+    <h2>Pipeline Comparison</h2>
+    <div class="scroll-area">
+      <table>
+        <thead>
+          <tr>
+            <th>Aspect</th>
+            <th>ci.yml</th>
+            <th>ephemeral.yml</th>
+            <th>release.yml</th>
+            <th>rollback.yml</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Trigger</strong></td>
+            <td>Auto (PR + main)</td>
+            <td>Auto (PR) + Manual</td>
+            <td>Manual only</td>
+            <td>Manual only</td>
+          </tr>
+          <tr>
+            <td><strong>Purpose</strong></td>
+            <td>Quality gate + dev deploy</td>
+            <td>PR preview environments</td>
+            <td>Hotfix / specific ref</td>
+            <td>Revert to old image</td>
+          </tr>
+          <tr>
+            <td><strong>Target namespace</strong></td>
+            <td><code>mfe-dev</code></td>
+            <td><code>mfe-pr-{N}</code></td>
+            <td><code>mfe-dev</code> / <code>mfe-test</code></td>
+            <td><code>mfe-dev</code></td>
+          </tr>
+          <tr>
+            <td><strong>Image rebuild?</strong></td>
+            <td>Yes</td>
+            <td>Yes (or skip w/ redeploy)</td>
+            <td>Yes (from git ref)</td>
+            <td><strong>No</strong> (uses ACR tag)</td>
+          </tr>
+          <tr>
+            <td><strong>Apps deployed</strong></td>
+            <td>All Nx-affected</td>
+            <td>Nx-affected or override</td>
+            <td>One at a time</td>
+            <td>All or one</td>
+          </tr>
+          <tr>
+            <td><strong>ConfigMap + Ingress</strong></td>
+            <td>Yes</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong>Auto-cleanup</strong></td>
+            <td>N/A</td>
+            <td>TTL (6h scan)</td>
+            <td>N/A</td>
+            <td>N/A</td>
+          </tr>
+          <tr>
+            <td><strong>Approx. duration</strong></td>
+            <td>~10–15 min</td>
+            <td>~5–7 min (rebuild)\n~2–3 min (redeploy)</td>
+            <td>~8–10 min</td>
+            <td>~2–4 min</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:24px;" class="cards cards-4">
+        <div class="card card-accent"><h3>ci.yml</h3><p>Your everyday pipeline. Runs automatically on every PR and merge.</p></div>
+        <div class="card card-purple"><h3>ephemeral.yml</h3><p>Your review companion. Live preview for every PR, expires automatically.</p></div>
+        <div class="card card-orange"><h3>release.yml</h3><p>Escape hatch. Deploy any commit to any env without going through main.</p></div>
+        <div class="card card-red"><h3>rollback.yml</h3><p>Break glass. Instant revert to any previous build ID, no rebuild needed.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – ci.yml Internals ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">18</span>
+    <div class="slide-tag">Technical Detail</div>
+    <h2>ci.yml — How the Stages Connect</h2>
+    <div class="two-col" style="flex:1; align-items:start;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <h3>Output variable pattern</h3>
+        <div class="card" style="background:var(--surface2);">
+          <p style="font-size:12px;margin-bottom:8px;">Stage 1 (Build) publishes the app list as an Azure DevOps output variable:</p>
+          <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.7;">echo "##vso[task.setvariable variable=AFFECTED_APPS;isOutput=true]$apps"</pre>
+          <p style="font-size:12px;margin-top:10px;margin-bottom:8px;">Stage 2 (Docker_Build) reads it as a stage dependency:</p>
+          <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.7;">variables:
+  AFFECTED_APPS: >-
+    $[stageDependencies.Build
+      .DetectApps.outputs
+      ['DetectApps.AFFECTED_APPS']]</pre>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>Key Azure DevOps YAML patterns</h3>
+        <ul class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <div>
+              <strong>Stage dependencies</strong>
+              <p><code>dependsOn: Build</code> + <code>condition: succeeded()</code> — Docker_Build only runs if Build passes, Deploy only runs if Docker_Build passes.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>
+              <strong>Reusable templates</strong>
+              <p><code>.azure-pipelines/templates/</code> holds shared job definitions. The deploy loop calls the same logic for every MFE without duplicating YAML.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div>
+              <strong>Service connections</strong>
+              <p>ACR push uses a Docker Registry service connection. AKS deploy uses a Kubernetes service connection scoped to the target namespace.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">4</span>
+            <div>
+              <strong>Variable groups</strong>
+              <p>Secrets (ACR URL, cluster endpoint, credentials) live in Azure DevOps variable groups linked to the pipeline — never hardcoded in YAML.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Docker Build Strategy ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">19</span>
+    <div class="slide-tag">Technical Detail</div>
+    <h2>Docker Build Strategy</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Top: Key highlights -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+        <div class="card card-green" style="font-size:12px;">
+          <h3 style="margin-bottom:8px;">Layer Cache Strategy</h3>
+          <p style="margin-bottom:8px;">Pipeline pulls the previous image before each build to seed Docker's build cache:</p>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.7;">docker pull ACR/mfe/$APP:pr-N-latest || true
+docker build \
+  --cache-from ACR/mfe/$APP:pr-N-latest \
+  --build-arg APP_NAME=$APP ...</pre>
+          <p style="margin-top:8px;color:var(--accent2);">If <code>package.json</code> unchanged → <code>npm ci</code> layer reused → <strong>~2 min saved per app per push.</strong></p>
+        </div>
+        <div class="card" style="font-size:12px;border:2px solid var(--accent);background:var(--surface2);">
+          <h3 style="margin-bottom:8px;color:var(--accent);">One Dockerfile — All Envs &amp; MFEs</h3>
+          <p>A single multi-stage Dockerfile is shared by every MFE and every environment. The <code>APP_NAME</code> build arg selects which NX project to compile — no per-app or per-env Dockerfiles.</p>
+          <p style="margin-top:8px;">This keeps the image build process <strong>consistent, auditable, and simple to maintain.</strong></p>
+        </div>
+        <div class="card card-purple" style="font-size:12px;">
+          <h3 style="margin-bottom:8px;">Production Parity</h3>
+          <p>The exact image built for a PR preview is the one promoted to <code>mfe-dev</code> and eventually to production — no rebuilds across environments.</p>
+          <p style="margin-top:8px;color:var(--accent4);">You test the same binary that will be deployed. PRs become integration tests against the real production artifact.</p>
+        </div>
+      </div>
+
+      <!-- Bottom: Dockerfile + tables -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex:1;align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <h3>Multi-stage Dockerfile (shared across all MFEs)</h3>
+          <div class="card" style="background:var(--surface2);">
+            <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:12px;border-radius:6px;overflow:auto;line-height:1.8;"># Stage 1 — install dependencies
+FROM node:20-alpine AS deps
+COPY package*.json ./
+RUN npm ci
+
+# Stage 2 — build the Angular app
+FROM deps AS builder
+ARG APP_NAME
+ARG CONFIG=production
+ARG APP_TYPE=remote
+COPY . .
+RUN npx nx build $APP_NAME \
+    --configuration=$CONFIG
+
+# Stage 3 — serve with NGINX
+FROM nginx:alpine AS serve
+COPY --from=builder dist/apps/$APP_NAME \
+     /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf</pre>
+          </div>
+          <table style="font-size:12px;">
+            <tr><th>Build arg</th><th>Example value</th><th>Purpose</th></tr>
+            <tr><td><code>APP_NAME</code></td><td><code>comments</code>, <code>post</code>…</td><td>Which NX app to build</td></tr>
+            <tr><td><code>CONFIG</code></td><td><code>production</code></td><td>Angular build configuration</td></tr>
+            <tr><td><code>APP_TYPE</code></td><td><code>remote</code> / <code>host</code></td><td>Module Federation role</td></tr>
+          </table>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <h3>Image tag convention</h3>
+          <table style="font-size:12px;">
+            <tr><th>Tag pattern</th><th>Trigger</th><th>Purpose</th></tr>
+            <tr><td><code>mfe/{app}:{BuildId}</code></td><td>CI merge</td><td>Versioned, immutable ref</td></tr>
+            <tr><td><code>mfe/{app}:latest</code></td><td>CI merge</td><td>Floating pointer to latest CI</td></tr>
+            <tr><td><code>mfe/{app}:release-{N}</code></td><td>Manual release</td><td>Hotfix / promoted build</td></tr>
+            <tr><td><code>mfe/{app}:pr-N-{BuildId}</code></td><td>PR build</td><td>Ephemeral environment deploy</td></tr>
+            <tr><td><code>mfe/{app}:pr-N-latest</code></td><td>PR build</td><td>Layer cache seed for next build</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Dynamic Configuration Flow ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">20</span>
+    <div class="slide-tag">Technical Detail</div>
+    <h2>How Dynamic Configuration Flows</h2>
+    <p style="margin-bottom:20px;color:var(--text-dim);">Values travel from pipeline parameters to the running application through three distinct layers. No environment-specific code branches — the same artefacts run everywhere.</p>
+    <div class="three-col" style="align-items:start;gap:20px;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>Layer 1 — Build time</h3>
+        <div class="card card-accent">
+          <p style="font-size:12px;margin-bottom:8px;">Pipeline parameter → bash var → Docker build arg:</p>
+          <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.8;">for app in $AFFECTED_APPS; do
+  docker build \
+    --build-arg APP_NAME=$app \
+    --build-arg CONFIG=production \
+    -t ACR/mfe/$app:$BUILD_ID .
+done</pre>
+        </div>
+        <div class="card" style="background:var(--surface2);font-size:12px;">
+          <p>A single <code>Dockerfile.prod</code> serves all MFEs. The <code>APP_NAME</code> build arg determines which NX project is compiled — the image identity is injected at build time, not in the source code.</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>Layer 2 — Runtime config (ConfigMap)</h3>
+        <div class="card card-purple">
+          <p style="font-size:12px;margin-bottom:8px;"><code>k8s/base/mfe-configmap.yaml</code>:</p>
+          <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.8;">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mfe-urls
+data:
+  COMMENTS_URL: "http://comments/"
+  POST_URL:     "http://post/"
+  TODOS_URL:    "http://todos/"</pre>
+          <p style="font-size:12px;margin-top:8px;">Applied by the monarch-main deploy step. All MFEs read sibling URLs from this map at runtime — no hardcoded URLs anywhere in the application code.</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <h3>Layer 3 — Module Federation</h3>
+        <div class="card card-green">
+          <p style="font-size:12px;margin-bottom:8px;"><code>module-federation.config.ts</code> (host app):</p>
+          <pre style="font-size:11px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.8;">remotes: [
+  ['comments',
+   'http://comments/remoteEntry.js'],
+  ['post',
+   'http://post/remoteEntry.js'],
+  ['todos',
+   'http://todos/remoteEntry.js'],
+]</pre>
+          <p style="font-size:12px;margin-top:8px;">For ephemeral environments, the ConfigMap overrides these URLs with <code>pr-N.*</code> addresses. The same host shell works across dev, PR previews, and production with zero code changes.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Current Azure Resources ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">21</span>
+    <div class="slide-tag">Infrastructure</div>
+    <h2>Current Azure Resources</h2>
+    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
+      <!-- Resource cards -->
+      <div class="cards cards-4">
+        <div class="card card-accent">
+          <div class="card-icon">🗂️</div>
+          <h3>Azure Container Registry</h3>
+          <p>Stores all Docker images. Repositories per MFE with tagged versions (<code>BuildId</code>, <code>latest</code>, <code>pr-N-*</code>, <code>release-N</code>).</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">Basic tier · ~$5/mo</p>
+        </div>
+        <div class="card card-green">
+          <div class="card-icon">⚙️</div>
+          <h3>Azure Kubernetes Service</h3>
+          <p>Runs all MFE workloads. Namespaces: <code>mfe-dev</code> (permanent) + <code>mfe-pr-N</code> (ephemeral per PR). NGINX Ingress Controller included.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">1 node pool · Standard_B2s · ~$70/node/mo</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">🔧</div>
+          <h3>Azure DevOps</h3>
+          <p>Hosts all 5 pipelines: <code>ci.yml</code>, <code>ephemeral.yml</code>, <code>ephemeral-cleanup-scheduled.yml</code>, <code>release.yml</code>, <code>rollback.yml</code>.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">Free tier (≤5 users) or $6/user/mo</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔑</div>
+          <h3>Variable Groups &amp; Service Connections</h3>
+          <p>Secrets (ACR URL, AKS credentials) stored in Azure DevOps variable groups. Docker Registry + Kubernetes service connections per environment.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">Included in Azure DevOps</p>
+        </div>
+      </div>
+      <!-- Interaction diagram + cost summary -->
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:24px;flex:1;align-items:start;">
+        <div>
+          <h3 style="margin-bottom:10px;">How they interact</h3>
+          <div class="diagram-wrap" style="flex:1;">
+            <div class="mermaid">
+flowchart TD
+    DEV(["Developer push"]) --> ADO["Azure DevOps Pipelines"]
+    ADO -->|"build & push image"| ACR[("Azure Container Registry\nBasic tier")]
+    ADO -->|"kubectl apply"| AKS["Azure Kubernetes Service\nmfe-dev / mfe-pr-N namespaces"]
+    ACR -->|"pull image on deploy"| AKS
+    AKS --> ING["NGINX Ingress Controller"]
+    ING -->|"dev.domain"| DEV2(["mfe-dev — shared environment"])
+    ING -->|"pr-N.domain"| USR(["mfe-pr-N — per-PR ephemeral env"])
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef registry fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef env fill:#6e40c9,stroke:#8957e5,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+
+    class DEV trigger
+    class ACR registry
+    class AKS,ING env
+    class ADO neutral
+    class DEV2,USR env
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <h3>Estimated cost — per environment</h3>
+          <div class="card card-orange" style="font-size:11px;">
+            <strong>Note:</strong> cost shown is for a single shared environment (<code>mfe-dev</code>). Each additional environment (staging, prod) adds AKS node + ingress costs. Ephemeral PR envs share the node pool at no extra node cost.
+          </div>
+          <table style="font-size:12px;">
+            <thead><tr><th>Resource</th><th>Config</th><th>Cost/mo</th></tr></thead>
+            <tbody>
+              <tr><td>AKS</td><td>2× Standard_B2s</td><td><strong>~$140</strong></td></tr>
+              <tr><td>ACR</td><td>Basic tier</td><td><strong>~$5</strong></td></tr>
+              <tr><td>Azure DevOps</td><td>Free ≤5 users</td><td><strong>$0</strong></td></tr>
+              <tr><td>Ingress (LB)</td><td>Standard</td><td><strong>~$15</strong></td></tr>
+              <tr><td>Egress</td><td>~10 GB/mo</td><td><strong>~$5</strong></td></tr>
+            </tbody>
+          </table>
+          <div class="card card-green" style="font-size:12px;">
+            <strong>Total: ~$165 / mo</strong>
+            <p style="margin-top:4px;">Ephemeral namespaces add zero extra node cost — they share the existing pool.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE – Optimal Azure Resources ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">22</span>
+    <div class="slide-tag">Infrastructure · Optimised</div>
+    <h2>Optimal Azure Resources &amp; Performance</h2>
+    <div style="display:flex;flex-direction:column;gap:14px;flex:1;">
+      <!-- Optimal additions -->
+      <div class="cards cards-4">
+        <div class="card card-green">
+          <div class="card-icon">🚀</div>
+          <h3>AKS — Autoscaling</h3>
+          <p>Enable <strong>Cluster Autoscaler</strong> (1–5 nodes) + <strong>Horizontal Pod Autoscaler</strong> per MFE. System pool on <code>Standard_D2s_v3</code> for stable scheduling.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">3 nodes base · ~$210/mo</p>
+        </div>
+        <div class="card card-accent">
+          <div class="card-icon">🌐</div>
+          <h3>Azure Front Door</h3>
+          <p>Global CDN for static MFE assets. Reduces NGINX load, adds WAF, SSL offload, and <strong>zero-downtime blue/green</strong> traffic shifting between MFE versions.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">Standard tier · ~$35/mo</p>
+        </div>
+        <div class="card card-purple">
+          <div class="card-icon">📊</div>
+          <h3>Application Insights</h3>
+          <p>End-to-end tracing from Azure DevOps pipeline steps through AKS pods to browser. Instant regression detection; ties to rollback decision criteria.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">Pay-per-use · ~$15–50/mo</p>
+        </div>
+        <div class="card card-orange">
+          <div class="card-icon">🔒</div>
+          <h3>Azure Key Vault + <abbr class="csi-abbr" title="Secrets Store CSI Driver — mounts secrets from Key Vault as Kubernetes volume mounts or env vars, with no secrets stored in YAML or variable groups">CSI</abbr></h3>
+          <p>Replaces DevOps variable groups for secrets. Secrets injected as pod environment variables at startup via the Secrets Store <abbr class="csi-abbr" title="Secrets Store CSI Driver — mounts secrets from Key Vault as Kubernetes volume mounts or env vars, with no secrets stored in YAML or variable groups">CSI</abbr> driver — no secrets in YAML.</p>
+          <p style="margin-top:8px;font-size:11px;color:var(--accent);">~$5/mo</p>
+        </div>
+      </div>
+
+      <!-- Resource interaction map -->
+      <div style="display:grid;grid-template-columns:1fr 300px;gap:20px;flex:1;align-items:start;">
+        <div>
+          <h3 style="margin-bottom:8px;">Resource interaction map</h3>
+          <div class="diagram-wrap" style="flex:1;">
+            <div class="mermaid">
+flowchart TD
+    DEV(["Developer push"]) --> ADO["Azure DevOps Pipelines"]
+    ADO -->|"scan on push\nACR Tasks"| ACR[("ACR Standard\n+ geo-replication")]
+    ADO -->|"kubectl apply"| AKS["AKS — autoscaling cluster\n1–5 nodes"]
+    ACR -->|"pull verified image"| AKS
+    AKS -->|"secrets at pod start"| KV["Azure Key Vault\n+ CSI driver"]
+    AKS -->|"telemetry"| AI["Application Insights"]
+    AKS --> AFD["Azure Front Door\nCDN · WAF · SSL"]
+    AFD -->|"dev / staging / prod"| USR(["End users"])
+    AI -->|"regression alert"| ADO
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef registry fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef env fill:#6e40c9,stroke:#8957e5,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+    classDef security fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef cdn fill:#0d4a6e,stroke:#58a6ff,color:#fff
+
+    class DEV trigger
+    class ACR registry
+    class AKS,ING env
+    class ADO neutral
+    class KV security
+    class AI,AFD cdn
+    class USR trigger
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <h3>Cost — per environment</h3>
+          <div class="card card-orange" style="font-size:11px;">
+            <strong>Note:</strong> cost is per environment (dev, staging, prod). Each env gets its own AKS namespace/node allocation. Ephemeral PR envs share the pool — no extra node cost.
+          </div>
+          <table style="font-size:11px;">
+            <thead><tr><th>Resource</th><th>Config</th><th>/mo</th></tr></thead>
+            <tbody>
+              <tr><td>AKS</td><td>3× D2s_v3 + autoscale</td><td><strong>~$210–350</strong></td></tr>
+              <tr><td>ACR</td><td>Standard + geo-repl.</td><td><strong>~$50</strong></td></tr>
+              <tr><td>Front Door</td><td>Standard · WAF + CDN</td><td><strong>~$35</strong></td></tr>
+              <tr><td>App Insights</td><td>~1 GB/day</td><td><strong>~$25</strong></td></tr>
+              <tr><td>Key Vault</td><td>&lt;10k ops/mo</td><td><strong>~$5</strong></td></tr>
+              <tr><td>Azure DevOps</td><td>Basic · 5 users</td><td><strong>~$30</strong></td></tr>
+              <tr><td>Egress / LB</td><td>~50 GB/mo</td><td><strong>~$20</strong></td></tr>
+            </tbody>
+          </table>
+          <div class="card card-accent" style="font-size:12px;">
+            <strong>Total: ~$375–515 / mo</strong>
+            <p style="margin-top:4px;">Autoscaler scales to 1 node off-hours. Front Door eliminates most AKS egress costs.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 12 – Summary ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">23</span>
+    <div class="slide-tag">Summary</div>
+    <h2>Key Takeaways</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+      <div class="three-col" style="align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div class="card card-accent">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">🔀</div>
+              <h3>Branch Strategy</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ <code>main</code> is always deployable</li>
+              <li>✓ Features via short-lived branches</li>
+              <li>✓ Only PRs can merge to main</li>
+              <li>✓ Nx detects affected apps</li>
+            </ul>
+          </div>
+          <div class="card card-green">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">🚀</div>
+              <h3>Continuous Deployment</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ Merge → auto-deploy to mfe-dev</li>
+              <li>✓ Loop builds auto-scale to any MFE count</li>
+              <li>✓ Rolling updates (zero downtime)</li>
+              <li>✓ Same image across all environments</li>
+            </ul>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <!-- MOST BENEFICIAL -->
+          <div class="card card-purple" style="border:2px solid var(--accent4);position:relative;">
+            <div style="position:absolute;top:-10px;right:10px;">
+              <span class="pill" style="background:var(--accent4);color:var(--bg);font-size:10px;letter-spacing:1px;font-weight:700;">HIGHEST IMPACT</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">🔬</div>
+              <h3>Ephemeral Environments</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ Every PR gets its own live environment</li>
+              <li>✓ Reviewers test real code before merge</li>
+              <li>✓ Docker layer cache → fast PR builds</li>
+              <li>✓ TTL annotation → zero manual cleanup</li>
+            </ul>
+          </div>
+          <div class="card card-orange">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">🕐</div>
+              <h3>Scheduled Cleanup</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ Every 6 hours scan</li>
+              <li>✓ <code>expires-at</code> annotation check</li>
+              <li>✓ No manual intervention needed</li>
+              <li>✓ Also: manual <code>action=cleanup</code></li>
+            </ul>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div class="card card-red">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">↩️</div>
+              <h3>Rollback Strategy</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ Every build ID preserved in ACR</li>
+              <li>✓ Validate image exists before deploy</li>
+              <li>✓ Sequential deploy for consistency</li>
+              <li>✓ ~2–4 min to complete</li>
+            </ul>
+          </div>
+          <!-- MOST BENEFICIAL -->
+          <div class="card card-green" style="border:2px solid var(--accent);position:relative;">
+            <div style="position:absolute;top:-10px;right:10px;">
+              <span class="pill" style="background:var(--accent);color:var(--bg);font-size:10px;letter-spacing:1px;font-weight:700;">HIGHEST IMPACT</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <div class="card-icon" style="margin:0;">⚙️</div>
+              <h3>Dynamic MFE Management</h3>
+            </div>
+            <ul style="list-style:none;font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+              <li>✓ NX graph = single source of truth</li>
+              <li>✓ Add MFE → <strong>zero pipeline changes</strong></li>
+              <li>✓ Remove MFE → <strong>zero pipeline changes</strong></li>
+              <li>✓ Loop jobs auto-scale to any app count</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Business Benefits section -->
+      <div style="border:2px solid var(--accent);border-radius:var(--radius);padding:16px;background:rgba(158,207,64,0.06);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:18px;">💼</span>
+          <h3 style="color:var(--accent);">Business Benefits</h3>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+          <div style="font-size:12px;">
+            <strong style="color:var(--text);">Faster feature delivery</strong>
+            <p style="color:var(--text-dim);margin-top:4px;">PR previews accelerate code review — reviewers test live instead of pulling branches locally.</p>
+          </div>
+          <div style="font-size:12px;">
+            <strong style="color:var(--text);">Lower incident risk</strong>
+            <p style="color:var(--text-dim);margin-top:4px;">Immutable image tags + rollback in 2–4 min. Same binary tested in PR env reaches production — no surprises.</p>
+          </div>
+          <div style="font-size:12px;">
+            <strong style="color:var(--text);">Scalable team structure</strong>
+            <p style="color:var(--text-dim);margin-top:4px;">New MFE teams work independently — no pipeline coordination needed. NX affected ensures only changed apps rebuild.</p>
+          </div>
+          <div style="font-size:12px;">
+            <strong style="color:var(--text);">Reduced infra overhead</strong>
+            <p style="color:var(--text-dim);margin-top:4px;">Auto-cleanup, autoscaling, and TTL management eliminate manual ops. Ephemeral envs share the node pool at no extra cost.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 23 – Terraform IaC ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">24</span>
+    <div class="slide-tag">Looking to the Future — IaC</div>
+    <h2>Terraform: Moving to Infrastructure as Code</h2>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+      <!-- Cards -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+        <div class="card card-accent" style="font-size:12px;">
+          <h3 style="margin-bottom:8px;">Terraform Modules</h3>
+          <p style="margin-bottom:8px;">One module per resource group. Reuse the same module across environments by passing environment-specific <code>tfvars</code>.</p>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.7;">modules/
+  aks/     # cluster, nodepool, RBAC
+  acr/     # registry, geo-replication
+  ado/     # service connections, var groups
+  ingress/ # NGINX, cert-manager
+  keyvault/ # vault + access policies</pre>
+        </div>
+        <div class="card card-green" style="font-size:12px;">
+          <h3 style="margin-bottom:8px;">Workspaces per Environment</h3>
+          <p style="margin-bottom:8px;">Each environment is a Terraform workspace — same codebase, isolated state files, different variable files.</p>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.7;">terraform workspace new dev
+terraform workspace new staging
+terraform workspace new prod
+
+# Apply per env
+terraform apply \
+  -var-file=envs/dev.tfvars</pre>
+        </div>
+        <div class="card card-purple" style="font-size:12px;">
+          <h3 style="margin-bottom:8px;">Remote State — Azure Blob</h3>
+          <p style="margin-bottom:8px;">State stored in Azure Storage — enables team collaboration, state locking on concurrent runs, and auditability.</p>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:8px;border-radius:6px;line-height:1.7;">terraform {
+  backend "azurerm" {
+    resource_group_name  = "tf-state-rg"
+    storage_account_name = "tfstate..."
+    container_name       = "tfstate"
+    key                  = "prod.tfstate"
+  }
+}</pre>
+        </div>
+      </div>
+      <!-- Diagram + benefits -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex:1;align-items:start;">
+        <div>
+          <h3 style="margin-bottom:8px;">Provisioning flow</h3>
+          <div class="diagram-wrap" style="flex:1;">
+            <div class="mermaid">
+flowchart TD
+    DEV(["terraform plan / apply"]) --> PLAN["Plan: diff vs current state"]
+    PLAN --> APPROVE{"PR review\nin Azure DevOps"}
+    APPROVE -- approved --> APPLY["terraform apply\nvia ADO pipeline on merge"]
+    APPLY --> AKS["AKS Cluster\n+ autoscaling node pools"]
+    APPLY --> ACR["ACR Standard\n+ geo-replication"]
+    APPLY --> KV["Azure Key Vault\n+ RBAC access policies"]
+    APPLY --> ADO_SC["ADO Service Connections\n+ Variable Groups"]
+    AKS --> INGRESS["NGINX Ingress\n+ cert-manager"]
+    INGRESS --> DONE(["Infrastructure ready\nRun application pipelines"])
+
+    classDef trigger fill:#1f6feb,stroke:#388bfd,color:#fff
+    classDef decision fill:#7d4e00,stroke:#e3b341,color:#fff
+    classDef resource fill:#1a7f37,stroke:#3fb950,color:#fff
+    classDef neutral fill:#21262d,stroke:#58a6ff,color:#e6edf3
+
+    class DEV trigger
+    class APPROVE decision
+    class AKS,ACR,KV,ADO_SC,INGRESS resource
+    class PLAN,APPLY neutral
+    class DONE trigger
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <h3>Key benefits</h3>
+          <ul class="steps">
+            <li><span class="step-num">✓</span><span><strong>Reproducible environments</strong> — spin up a complete copy of production in minutes</span></li>
+            <li><span class="step-num">✓</span><span><strong>Drift detection</strong> — <code>terraform plan</code> surfaces any manual portal changes</span></li>
+            <li><span class="step-num">✓</span><span><strong>Infra in version control</strong> — every change is a PR, reviewed and audited like application code</span></li>
+            <li><span class="step-num">✓</span><span><strong>Destroy &amp; recreate</strong> — ephemeral staging envs can be torn down after testing to save cost</span></li>
+          </ul>
+          <div class="card card-green" style="font-size:12px;">
+            <strong>Migration path</strong>
+            <ol style="padding-left:16px;margin-top:6px;display:flex;flex-direction:column;gap:4px;color:var(--text-dim);">
+              <li>Import existing AKS/ACR resources into state</li>
+              <li>Write modules matching current config</li>
+              <li>Add Terraform pipeline in ADO (plan on PR, apply on merge)</li>
+              <li>Expand to new environments via workspaces</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 24 – Bootstrap Commands ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">25</span>
+    <div class="slide-tag">Looking to the Future — Bootstrap</div>
+    <h2>Bootstrap Commands — Full Setup Reference</h2>
+    <p style="margin-bottom:12px;color:var(--text-dim);">Ordered sequence of commands to stand up the complete infrastructure from scratch.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1;align-items:start;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--accent);margin-bottom:8px;">Phase 1 — Azure Infrastructure</h3>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.8;"># Login & set subscription
+az login
+az account set --subscription "&lt;SUBSCRIPTION_ID&gt;"
+
+# Resource group
+az group create --name mfe-rg --location eastus
+
+# Azure Container Registry (Basic)
+az acr create --resource-group mfe-rg \
+  --name mferegistry --sku Basic
+
+# AKS Cluster
+az aks create --resource-group mfe-rg \
+  --name mfe-cluster \
+  --node-count 2 --node-vm-size Standard_B2s \
+  --generate-ssh-keys \
+  --attach-acr mferegistry
+
+# Get kubeconfig
+az aks get-credentials \
+  --resource-group mfe-rg --name mfe-cluster</pre>
+        </div>
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--accent2);margin-bottom:8px;">Phase 2 — Kubernetes Setup</h3>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.8;"># Namespaces
+kubectl create namespace mfe-dev
+kubectl create namespace ingress-nginx
+
+# Install NGINX Ingress (Helm)
+helm repo add ingress-nginx \
+  https://kubernetes.github.io/ingress-nginx
+helm install nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --set controller.replicaCount=2
+
+# ACR image pull secret for mfe-dev
+kubectl create secret docker-registry acr-secret \
+  --namespace mfe-dev \
+  --docker-server=mferegistry.azurecr.io \
+  --docker-username=$(az acr credential show \
+    --name mferegistry --query username -o tsv) \
+  --docker-password=$(az acr credential show \
+    --name mferegistry --query "passwords[0].value" \
+    -o tsv)</pre>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--accent4);margin-bottom:8px;">Phase 3 — NX Monorepo</h3>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.8;"># Create NX workspace
+npx create-nx-workspace@latest monarch \
+  --preset=angular-monorepo
+
+# Add Module Federation
+npm install --save-dev @nx/angular
+
+# Generate host + remote MFEs
+npx nx generate @nx/angular:host monarch-main \
+  --remotes=comments,post,todos
+
+# Verify affected detection
+npx nx show projects --type=app
+npx nx affected --target=build --base=main
+
+# Build all
+npx nx run-many --target=build --all \
+  --configuration=production</pre>
+        </div>
+        <div class="card" style="background:var(--surface2);">
+          <h3 style="color:var(--accent3);margin-bottom:8px;">Phase 4 — ACR Push &amp; ADO Pipelines</h3>
+          <pre style="font-size:10px;color:var(--accent5);background:var(--bg);padding:10px;border-radius:6px;overflow:auto;line-height:1.8;"># Authenticate Docker to ACR
+az acr login --name mferegistry
+
+# First image push (seeds cache for PR builds)
+docker build --build-arg APP_NAME=monarch-main \
+  -t mferegistry.azurecr.io/mfe/monarch-main:1 .
+docker push mferegistry.azurecr.io/mfe/monarch-main:1
+
+# ADO: create service connections (via portal or CLI)
+# 1. Docker Registry → mferegistry.azurecr.io
+# 2. Kubernetes → mfe-cluster / mfe-dev
+# 3. Kubernetes → mfe-cluster (ephemeral namespace creation)
+
+# Trigger pipelines (after YAML committed to repo)
+az pipelines run --name ci
+az pipelines run --name ephemeral \
+  --parameters action=deploy prNumber=1 ttlHours=24</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SLIDE 26 – Feature Flags Future ══════════════════ -->
+  <section class="slide">
+    <span class="slide-num">26</span>
+    <div class="slide-tag">Looking to the Future — Feature Flags</div>
+    <h2>Feature Flags — Decouple Deploy from Release</h2>
+    <p style="margin-bottom:12px;color:var(--text-dim);">
+      A feature flag strategy lets us ship code continuously while controlling exposure by audience, environment, or percentage rollout. This reduces release risk and gives us a fast rollback path without redeploying.
+    </p>
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;flex:1;align-items:start;">
+      <div class="card" style="background:var(--surface2);display:flex;flex-direction:column;gap:10px;">
+        <h3 style="color:var(--accent);margin:0;">Why it fits our MFE future</h3>
+        <ul style="margin:0;padding-left:18px;color:var(--text-dim);font-size:12px;line-height:1.5;display:flex;flex-direction:column;gap:6px;">
+          <li>Enable progressive rollout per remote or capability.</li>
+          <li>Test features safely for internal users before broad release.</li>
+          <li>Disable problematic behavior instantly (kill switch) without pipeline execution.</li>
+          <li>Support A/B experiments and tenant-specific experiences.</li>
+        </ul>
+      </div>
+      <div class="card" style="background:var(--surface2);">
+        <h3 style="color:var(--accent2);margin-bottom:8px;">Example Rollout Flow</h3>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:8px;background:rgba(255,255,255,0.02);">
+          <img
+            src="feature-flag.png"
+            alt="Feature flag rollout example"
+            style="display:block;width:100%;max-height:320px;object-fit:contain;border-radius:6px;background:var(--bg);"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /deck -->
+
+<!-- ── Lightbox overlay ──────────────────────────────────────── -->
+<div id="lightbox">
+  <div id="lightbox-inner">
+    <div id="lb-toolbar">
+      <span id="lb-hint">Drag to pan &nbsp;·&nbsp; Double-click to fit</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <label for="lb-zoom" style="font-size:11px;color:var(--text-dim);">Zoom</label>
+        <select id="lb-zoom">
+          <option value="fit">Fit</option>
+          <option value="50">50%</option>
+          <option value="75">75%</option>
+          <option value="100">100%</option>
+          <option value="125">125%</option>
+          <option value="150">150%</option>
+          <option value="200">200%</option>
+          <option value="300">300%</option>
+        </select>
+      </div>
+      <button id="lightbox-close" title="Close (Esc)">✕</button>
+    </div>
+    <div id="lightbox-viewport">
+      <div id="lightbox-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Init Mermaid ──────────────────────────────────────────
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      background:         '#161b22',
+      primaryColor:       '#21262d',
+      primaryBorderColor: '#30363d',
+      primaryTextColor:   '#e6edf3',
+      lineColor:          '#58a6ff',
+      edgeLabelBackground:'#161b22',
+      tertiaryColor:      '#0d1117',
+      fontSize:           '13px',
+    },
+    flowchart: { curve: 'basis', htmlLabels: false, nodeSpacing: 70, rankSpacing: 65, padding: 24 },
+    gitGraph:  { rotateCommitLabel: false },
+  });
+
+  // ── SVG → crisp image conversion ──────────────────────────
+  // Serialises the Mermaid SVG to a Blob URL so it renders as a
+  // proper image (crisp, consistent, no JS rendering artefacts).
+  function svgToImgEl(svgEl) {
+    return new Promise(resolve => {
+      svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      // Read natural dimensions from viewBox so the image has correct intrinsic size
+      let naturalW = 800, naturalH = 600;
+      const vb = svgEl.getAttribute('viewBox');
+      if (vb) {
+        const p = vb.trim().split(/[\s,]+/).map(Number);
+        if (p.length >= 4 && p[2] > 0 && p[3] > 0) { naturalW = p[2]; naturalH = p[3]; }
+      }
+      svgEl.setAttribute('width',  Math.round(naturalW));
+      svgEl.setAttribute('height', Math.round(naturalH));
+      const data = new XMLSerializer().serializeToString(svgEl);
+      const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+      const url  = URL.createObjectURL(blob);
+      const img  = new Image();
+      img.className        = 'diagram-img';
+      img.decoding         = 'async';
+      img.draggable        = false;
+      img.dataset.src      = url;
+      img.dataset.naturalW = naturalW;
+      img.dataset.naturalH = naturalH;
+      img.onload  = () => resolve(img);
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  // ── Slide engine ──────────────────────────────────────────
+  const slides  = Array.from(document.querySelectorAll('.slide'));
+  const fill    = document.getElementById('progress-fill');
+  const counter = document.getElementById('counter');
+  let current   = 0;
+  let rendered  = new Set();
+
+  async function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = (n + slides.length) % slides.length;
+    slides[current].classList.add('active');
+    fill.style.width = ((current + 1) / slides.length * 100) + '%';
+    counter.textContent = `${current + 1} / ${slides.length}`;
+
+    if (!rendered.has(current)) {
+      rendered.add(current);
+      const diagrams = slides[current].querySelectorAll('.mermaid');
+      if (diagrams.length) {
+        await mermaid.run({ nodes: diagrams });
+        for (const mermaidEl of diagrams) {
+          const svg = mermaidEl.querySelector('svg');
+          if (!svg) continue;
+          svg.removeAttribute('width');
+          svg.removeAttribute('height');
+          const img = await svgToImgEl(svg);
+          if (img) {
+            // Replace SVG with the image element
+            svg.replaceWith(img);
+          } else {
+            // Fallback: keep SVG but apply fill styles
+            svg.style.width  = '100%';
+            svg.style.height = '100%';
+          }
+        }
+      }
+    }
+  }
+
+  showSlide(0);
+
+  document.getElementById('btn-next').addEventListener('click', () => showSlide(current + 1));
+  document.getElementById('btn-prev').addEventListener('click', () => showSlide(current - 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') {
+      e.preventDefault(); showSlide(current + 1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault(); showSlide(current - 1);
+    }
+  });
+
+  const hint = document.getElementById('key-hint');
+  document.addEventListener('keydown', () => { hint.style.opacity = '0'; }, { once: true });
+  document.getElementById('btn-next').addEventListener('click', () => { hint.style.opacity = '0'; }, { once: true });
+
+  // ── Lightbox with zoom / pan ───────────────────────────────
+  const lightbox    = document.getElementById('lightbox');
+  const lbViewport  = document.getElementById('lightbox-viewport');
+  const lbContent   = document.getElementById('lightbox-content');
+  const lbClose     = document.getElementById('lightbox-close');
+  const lbZoom      = document.getElementById('lb-zoom');
+
+  let lbScale = 1, lbFitScale = 1, lbPanX = 0, lbPanY = 0;
+  let lbDragging = false, lbLastX = 0, lbLastY = 0;
+
+  function applyLbTransform(animate) {
+    if (animate) {
+      lbContent.style.transition = 'transform 0.22s ease';
+      setTimeout(() => { lbContent.style.transition = 'none'; }, 240);
+    }
+    lbContent.style.transform =
+      `translate(${lbPanX}px, ${lbPanY}px) scale(${lbScale})`;
+  }
+
+  function computeFitScale(natW, natH) {
+    const pad = 40;
+    return Math.min(
+      (lbViewport.clientWidth  - pad) / natW,
+      (lbViewport.clientHeight - pad) / natH
+    );
+  }
+
+  // Zoom dropdown
+  lbZoom.addEventListener('change', () => {
+    lbPanX = 0; lbPanY = 0;
+    lbScale = lbZoom.value === 'fit' ? lbFitScale : parseInt(lbZoom.value) / 100;
+    applyLbTransform(true);
+  });
+
+  // Drag → pan
+  lbViewport.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    lbDragging = true; lbLastX = e.clientX; lbLastY = e.clientY;
+    lbViewport.classList.add('grabbing');
+    lbContent.style.transition = 'none';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!lbDragging) return;
+    lbPanX += e.clientX - lbLastX;
+    lbPanY += e.clientY - lbLastY;
+    lbLastX = e.clientX; lbLastY = e.clientY;
+    applyLbTransform();
+  });
+  document.addEventListener('mouseup', () => {
+    lbDragging = false;
+    lbViewport.classList.remove('grabbing');
+  });
+
+  // Double-click → reset to 125%
+  lbViewport.addEventListener('dblclick', () => {
+    lbPanX = 0; lbPanY = 0; lbScale = 1.25;
+    lbZoom.value = '125';
+    applyLbTransform(true);
+  });
+
+  // ── Walk up DOM (works for SVG child elements too) ─────────
+  function findDiagramWrap(el) {
+    while (el && el !== document.body) {
+      if (el.classList && el.classList.contains('diagram-wrap')) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // ── Open lightbox on diagram click (capture phase) ─────────
+  document.addEventListener('click', e => {
+    if (lightbox.contains(e.target)) return;
+    const wrap = findDiagramWrap(e.target);
+    if (!wrap) return;
+
+    const diagramImg = wrap.querySelector('img.diagram-img');
+    const svg        = wrap.querySelector('svg');
+    lbContent.innerHTML = '';
+    lbContent.style.transition = 'none';
+
+    if (diagramImg) {
+      const natW = parseInt(diagramImg.dataset.naturalW) || 800;
+      const natH = parseInt(diagramImg.dataset.naturalH) || 600;
+      const img = new Image();
+      img.src          = diagramImg.src;
+      img.draggable    = false;
+      img.style.width  = natW + 'px';
+      img.style.height = natH + 'px';
+      lbContent.appendChild(img);
+      lbFitScale = computeFitScale(natW, natH);
+    } else if (svg) {
+      // Fallback for unconverted SVGs
+      const clone = svg.cloneNode(true);
+      clone.removeAttribute('style');
+      const vbStr = svg.getAttribute('viewBox');
+      let natW = 800, natH = 600;
+      if (vbStr) {
+        const p = vbStr.trim().split(/[\s,]+/).map(Number);
+        if (p.length >= 4 && p[2] > 0 && p[3] > 0) { natW = p[2]; natH = p[3]; }
+      }
+      clone.setAttribute('width',  Math.round(natW));
+      clone.setAttribute('height', Math.round(natH));
+      lbContent.appendChild(clone);
+      lbFitScale = computeFitScale(natW, natH);
+    } else { return; }
+
+    lbScale = 1.25; lbPanX = 0; lbPanY = 0;
+    lbZoom.value = '125';
+    lightbox.classList.add('open');
+    requestAnimationFrame(applyLbTransform);
+  }, true);
+
+  function closeLightbox() {
+    lightbox.classList.remove('open');
+    setTimeout(() => {
+      lbContent.innerHTML = '';
+      lbScale = 1; lbPanX = 0; lbPanY = 0;
+      lbContent.style.transform = 'none';
+    }, 200);
+  }
+
+  lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+  lbClose.addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && lightbox.classList.contains('open')) {
+      e.stopImmediatePropagation(); closeLightbox();
+    }
+  }, true);
+</script>
+</body>
+</html>
